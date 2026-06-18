@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 120">
+  <rect width="600" height="120" fill="#1a1a2e" rx="8"/>
+  <text x="30" y="72" font-family="SF Mono, Menlo, monospace" font-size="48" font-weight="700" fill="#e0e0ff">episodic</text>
+  <text x="250" y="72" font-family="SF Mono, Menlo, monospace" font-size="48" font-weight="300" fill="#8b83ff">memory</text>
+  <text x="30" y="100" font-family="SF Mono, Menlo, monospace" font-size="14" fill="#888">judgment feedback loop for AI agents</text>
+</svg>
