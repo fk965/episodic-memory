@@ -5,7 +5,7 @@ Episodic Memory Demo
 Demonstrates the full workflow: store → search → verify → export.
 
 Run:
-    pip install episodic-memory
+    pip install episodic-judgment
     python examples/demo.py
 """
 
@@ -110,7 +110,7 @@ def main():
     print(f"  Total memories: {memory.count()}")
     print(f"  Total triples:  {len(triples)}")
     print("=" * 60)
-    print("\n✨ Done. Install with:  pip install episodic-memory")
+    print("\n✨ Done. Install with:  pip install episodic-judgment")
     print("   Docs:               github.com/fk965/episodic-memory")
 
 

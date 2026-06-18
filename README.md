@@ -11,11 +11,12 @@ not just <em>what</em> it knows.
 </h3>
 
 <p align="center">
-  <a href="https://pypi.org/project/episodic-memory/"><img src="https://img.shields.io/pypi/v/episodic-memory" alt="PyPI"></a>
+  <a href="https://pypi.org/project/episodic-judgment/"><img src="https://img.shields.io/pypi/v/episodic-judgment" alt="PyPI"></a>
   <a href="https://github.com/fk965/episodic-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/fk965/episodic-memory" alt="License"></a>
   <a href="https://github.com/fk965/episodic-memory/actions"><img src="https://img.shields.io/github/actions/workflow/status/fk965/episodic-memory/test.yml" alt="CI"></a>
   <a href="https://codecov.io/gh/fk965/episodic-memory"><img src="https://img.shields.io/codecov/c/github/fk965/episodic-memory" alt="Coverage"></a>
   <a href="https://github.com/fk965/episodic-memory"><img src="https://img.shields.io/github/stars/fk965/episodic-memory" alt="Stars"></a>
+	  <a href="https://dev.to/fk965/ai-agents-remember-facts-but-cant-learn-from-mistakes-heres-a-fix-tags-ai-agents-2ml9"><img src="https://img.shields.io/badge/blog-dev.to-8B5CF6" alt="Blog"></a>
 </p>
 
 ---
@@ -69,7 +70,7 @@ Pure cosine retrieval finds the right judgment only **40%** of the time — beca
 The benchmark is fully reproducible — run it yourself:
 
 ```bash
-pip install episodic-memory sentence-transformers
+pip install episodic-judgment sentence-transformers
 python benchmarks/judgment_recall.py
 ```
 
@@ -80,7 +81,7 @@ python benchmarks/judgment_recall.py
 ## Quickstart
 
 ```bash
-pip install episodic-memory
+pip install episodic-judgment
 ```
 
 ```python
