@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Protocol, Sequence
 
 import numpy as np
 
@@ -12,7 +12,18 @@ try:
 
     _HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:
+    SentenceTransformer = None
     _HAS_SENTENCE_TRANSFORMERS = False
+
+
+class SupportsEmbed(Protocol):
+    """Structural type for anything usable as an embedder.
+
+    Any object with an ``embed(text) -> np.ndarray`` method qualifies, so
+    callers can inject a custom embedder without subclassing ``Embedder``.
+    """
+
+    def embed(self, text: str) -> np.ndarray: ...
 
 
 class Embedder:
@@ -24,16 +35,16 @@ class Embedder:
 
     def __init__(self, model: str | None = None):
         self._model_name = model or "all-MiniLM-L6-v2"
-        self._model = None
+        self._model: Any = None
 
     @property
     def dim(self) -> int:
         """Embedding dimension."""
         return 384  # all-MiniLM-L6-v2
 
-    def _ensure_model(self) -> None:
+    def _ensure_model(self) -> Any:
         if self._model is not None:
-            return
+            return self._model
         if not _HAS_SENTENCE_TRANSFORMERS:
             raise RuntimeError(
                 "sentence-transformers is not installed. "
@@ -41,17 +52,18 @@ class Embedder:
             )
         logger.info("Loading embedding model: %s", self._model_name)
         self._model = SentenceTransformer(self._model_name)
+        return self._model
 
     def embed(self, text: str) -> np.ndarray:
         """Embed a single text string into a float vector."""
-        self._ensure_model()
-        vec = self._model.encode(text, normalize_embeddings=True)
+        model = self._ensure_model()
+        vec = model.encode(text, normalize_embeddings=True)
         return np.asarray(vec, dtype=np.float32)
 
     def embed_many(self, texts: Sequence[str]) -> np.ndarray:
         """Embed multiple texts at once (batched for efficiency)."""
-        self._ensure_model()
-        vecs = self._model.encode(
+        model = self._ensure_model()
+        vecs = model.encode(
             list(texts),
             normalize_embeddings=True,
             show_progress_bar=False,

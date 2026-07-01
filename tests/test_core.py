@@ -133,7 +133,7 @@ class TestUtilityWeightedSearch:
 
     def test_use_utility_off_is_pure_cosine(self, memory):
         proven = memory.store("deploy production", "freeze on Friday", "risky")
-        unproven = memory.store("deploy production", "freeze on Friday", "risky")
+        memory.store("deploy production", "freeze on Friday", "risky")  # unproven twin
         for _ in range(5):
             memory.verify(proven, adopted=True)
         # With weighting off, tie broken by cosine only (order is by insertion
@@ -150,6 +150,21 @@ class TestUtilityWeightedSearch:
         results = memory.search("deploy production", use_utility=True)
         ids = [r.id for r in results]
         assert ids.index(good) < ids.index(bad)
+
+    def test_more_evidence_outranks_less_at_equal_ratio(self, memory):
+        # The v0.2.0 promise: a judgment adopted many times outranks one
+        # adopted only once, even though both have a 100% adoption ratio.
+        # The old raw-ratio formula scored both 1.0 and could not do this.
+        well_tested = memory.store("deploy production", "freeze on Friday", "risky")
+        barely_tested = memory.store("deploy production", "freeze on Friday", "risky")
+        for _ in range(50):
+            memory.verify(well_tested, adopted=True)
+        memory.verify(barely_tested, adopted=True)
+
+        assert memory.get(well_tested).utility_score > memory.get(barely_tested).utility_score  # type: ignore
+        results = memory.search("deploy production", use_utility=True)
+        ids = [r.id for r in results]
+        assert ids.index(well_tested) < ids.index(barely_tested)
 
 
 class TestVerify:
@@ -201,7 +216,7 @@ class TestExport:
         assert triples == []
 
     def test_export_only_verified(self, memory):
-        mem_id = memory.store("t", "j", "r")
+        memory.store("t", "j", "r")
         triples = memory.export_triples()
         # Without verify, utility is 0.0
         assert len(triples) == 0
@@ -223,15 +238,36 @@ class TestExport:
 
 
 class TestPersistence:
-    def test_persists_across_sessions(self, persisted_memory):
-        persisted_memory.store("trigger", "judgment", "reasoning", domain="ops")
-        assert persisted_memory.count() == 1
+    """Real cross-session persistence: close the store, reopen a *fresh*
+    one at the same path, and confirm the data survived. The previous tests
+    reused a single open connection and never actually exercised reload.
+    """
 
-    def test_reload_persisted_data(self, persisted_memory):
-        mem_id = persisted_memory.store("t", "j", "r")
-        persisted_memory.verify(mem_id, adopted=True)
-        assert persisted_memory.get(mem_id) is not None
-        assert persisted_memory.get(mem_id).adoption_count == 1  # type: ignore
+    def test_persists_across_sessions(self, tmp_db_path, fake_embedder_cls):
+        store = EpisodicMemory(embedder=fake_embedder_cls(), db_path=tmp_db_path)
+        store.store("trigger", "judgment", "reasoning", domain="ops")
+        store.close()
+
+        reopened = EpisodicMemory(embedder=fake_embedder_cls(), db_path=tmp_db_path)
+        try:
+            assert reopened.count() == 1
+        finally:
+            reopened.close()
+
+    def test_reload_persisted_data(self, tmp_db_path, fake_embedder_cls):
+        store = EpisodicMemory(embedder=fake_embedder_cls(), db_path=tmp_db_path)
+        mem_id = store.store("t", "j", "r")
+        store.verify(mem_id, adopted=True)
+        store.close()
+
+        reopened = EpisodicMemory(embedder=fake_embedder_cls(), db_path=tmp_db_path)
+        try:
+            record = reopened.get(mem_id)
+            assert record is not None
+            assert record.adoption_count == 1
+            assert record.utility_score > 0
+        finally:
+            reopened.close()
 
 
 class TestGet:

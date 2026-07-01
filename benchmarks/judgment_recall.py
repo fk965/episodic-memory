@@ -16,6 +16,7 @@ make the semantic comparison meaningless.
 
 from __future__ import annotations
 
+import random
 import statistics
 
 from episodic_memory import EpisodicMemory
@@ -74,17 +75,31 @@ SCENARIOS = [
     ),
 ]
 
+# Verification events fed to each judgment.
+ROUNDS = 5
 
-def build_memory(use_real: bool = True) -> tuple[EpisodicMemory, dict]:
+
+def build_memory(noise: float = 0.0, seed: int = 0) -> tuple[EpisodicMemory, dict]:
+    """Store each scenario's competing judgments and feed the flywheel.
+
+    ``noise`` is the probability that any single verification event is
+    *flipped* — a correct judgment recorded as corrected, or a wrong one
+    recorded as adopted. noise=0.0 is the perfect-oracle ceiling; a realistic
+    feedback source is noisy, which is the case that actually matters.
+    """
+    rng = random.Random(seed)
     mem = EpisodicMemory()  # real embedder by default
     correct_ids = {}
     for i, (_query, correct, wrong) in enumerate(SCENARIOS):
         cid = mem.store(f"scenario {i}", correct, "validated in practice", domain="eng")
         wid = mem.store(f"scenario {i}", wrong, "looked plausible", domain="eng")
-        # The flywheel: correct judgment gets adopted, wrong one gets corrected.
-        for _ in range(4):
-            mem.verify(cid, adopted=True)
-        mem.verify(wid, adopted=False, user_correction="this caused a problem")
+        # Correct judgment: mostly adopted, but each signal may be flipped.
+        for _ in range(ROUNDS):
+            mem.verify(cid, adopted=rng.random() >= noise)
+        # Wrong judgment: mostly corrected, same flip probability.
+        for _ in range(ROUNDS):
+            corrected = rng.random() >= noise
+            mem.verify(wid, adopted=not corrected)
         correct_ids[i] = cid
     return mem, correct_ids
 
@@ -108,14 +123,11 @@ def evaluate(mem: EpisodicMemory, correct_ids: dict, use_utility: bool) -> dict:
     }
 
 
-def main() -> None:
-    print("Building memory store with the real embedding model...")
-    mem, correct_ids = build_memory()
-    print(f"Stored {mem.count()} memories across {len(SCENARIOS)} scenarios.\n")
-
+def _report(title: str, noise: float, seed: int) -> None:
+    mem, correct_ids = build_memory(noise=noise, seed=seed)
     baseline = evaluate(mem, correct_ids, use_utility=False)
     flywheel = evaluate(mem, correct_ids, use_utility=True)
-
+    print(f"\n{title}  (signal noise = {noise:.0%})")
     print("=" * 56)
     print(f"{'metric':<28}{'cosine':>12}{'+utility':>12}")
     print("-" * 56)
@@ -124,8 +136,23 @@ def main() -> None:
     print(f"{'mean rank of correct (lower)':<28}"
           f"{baseline['mean_rank_of_correct']:>12.2f}{flywheel['mean_rank_of_correct']:>12.2f}")
     print("=" * 56)
-
     mem.close()
+
+
+def main() -> None:
+    print("Building memory stores with the real embedding model...")
+    print(f"{len(SCENARIOS)} scenarios, two competing judgments each.")
+    print(
+        "\nThe 'cosine' column is the honest finding: a plain embedder can't\n"
+        "tell a correct judgment from a plausible-but-wrong one. The question\n"
+        "is whether utility feedback helps — and whether it survives NOISE in\n"
+        "that feedback, since real adoption signals are never perfect."
+    )
+    # Perfect-oracle ceiling (what the flywheel can do with clean signal)...
+    _report("PERFECT SIGNAL (ceiling, not a real-world claim)", noise=0.0, seed=1)
+    # ...and the case that actually matters: imperfect feedback.
+    _report("NOISY SIGNAL (realistic)", noise=0.2, seed=1)
+    _report("NOISY SIGNAL (realistic)", noise=0.3, seed=7)
 
 
 if __name__ == "__main__":

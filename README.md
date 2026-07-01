@@ -45,36 +45,35 @@ These are **episodic memories**: decisions made, reasoning used, outcomes observ
 |---|---|---|
 | **What it stores** | Facts, preferences, conversation history | Decisions, judgments, reasoning chains |
 | **Query pattern** | "What does the user prefer?" | "How should I handle this situation?" |
-| **Feedback loop** | None — stored facts are trusted | Utility-weighted: was the judgment adopted or corrected? |
-| **Ranking** | Cosine similarity only | Dynamic: similarity × (1 + α · utility_score) |
-| **Learning over time** | One-shot recall | Accumulates verified judgments — what works, what doesn't |
+| **Feedback loop** | Optimized for storing/updating facts | Utility-weighted: was the judgment adopted or corrected? |
+| **Ranking** | Primarily semantic similarity | Similarity × (1 + α · utility), where utility is confidence-weighted |
+| **Optimized for** | Recalling what's relevant now | Surfacing what has held up over repeated use |
 | **Training data output** | Not designed for this | Export (context, judgment, outcome) triples for fine-tuning |
 
-**The key insight:** semantic memory answers "what is relevant?" Episodic memory answers "what has been proven correct?"
+**The key insight:** semantic memory answers "what is relevant?" Episodic memory adds "what has held up when we acted on it before?"
 
 ---
 
-## Does it actually work? (Benchmark)
+## Does the flywheel help? (Benchmark)
 
-We built a synthetic judgment-recall task: 10 scenarios, each with two competing judgments that look alike to an embedder — one correct (validated), one wrong (corrected). Then we measure how often the **correct** judgment ranks first under each strategy.
+We built a synthetic judgment-recall task: 10 scenarios, each with two competing judgments that look alike to an embedder — one correct, one plausible-but-wrong. A held-out query restates the scenario, and we measure how often the **correct** judgment ranks first.
 
-```
-metric                            cosine    +utility flywheel
---------------------------------------------------------
-precision@1 (higher better)         0.40        0.90
-mean rank of correct (lower)        1.90        1.30
-```
+The honest starting point is the **cosine baseline**: a plain embedder picks the correct judgment only a minority of the time, because it can't tell "looks relevant" from "is actually correct." That gap is the whole reason this library exists.
 
-Pure cosine retrieval finds the right judgment only **40%** of the time — because the embedder can't distinguish "looks relevant" from "is actually correct." Adding the utility flywheel brings it to **90%**.
+The real question is not "can utility feedback close that gap under perfect labels" (trivially yes — if you already know which judgment is correct, ranking by that label wins by construction). It's whether the flywheel still helps when the feedback signal is **noisy**, since real adoption/correction signals always are. So the benchmark runs three regimes:
 
-The benchmark is fully reproducible — run it yourself:
+- **Perfect signal** — a ceiling, not a real-world claim.
+- **Noisy signal (20% flipped)** — a realistic feedback source.
+- **Noisy signal (30% flipped)** — a pessimistic one.
+
+Run it yourself (downloads the Sentence-BERT weights on first run):
 
 ```bash
 pip install episodic-judgment sentence-transformers
 python benchmarks/judgment_recall.py
 ```
 
-> **Note:** This is a synthetic proof-of-concept, not production validation. Real-world results depend on your domain, embedding quality, and verification coverage. The script is meant to be a starting point — we encourage you to adapt it to your own use case.
+> **This is a synthetic proof-of-concept, not production validation.** The scenarios are hand-written and the "correct" labels are ours. Real-world results depend entirely on your domain, embedding quality, and — most of all — how reliable your verification signal is. Treat the script as a starting point to adapt to your own data, not as evidence the technique will work for you.
 
 ---
 
@@ -149,7 +148,7 @@ The core idea: judgments that have been repeatedly validated should rank higher 
   search() with use_utility=True (loop back)
 ```
 
-The formula is simple: `rank_score = cosine_similarity × (1 + α · utility_score)`, where utility_score = adoption_count / (adoption_count + correction_count).
+The ranking formula is `rank_score = cosine_similarity × (1 + α · utility_score)`. The `utility_score` is **not** a raw adoption ratio — that would score a judgment adopted once the same as one adopted a hundred times, so "repeatedly validated" would mean nothing. Instead it's the **Wilson score lower bound** on the adoption proportion, which rises with both the adoption rate *and* the amount of evidence. A judgment adopted 100× outranks one adopted 1× even though both have a 100% adoption rate.
 
 - ⍺ = 0.5 by default, adjustable via `utility_weight`
 - Raw cosine similarity is always the base — utility can't override relevance, only disambiguate it
@@ -163,7 +162,7 @@ The formula is simple: `rank_score = cosine_similarity × (1 + α · utility_sco
 |---|---|---|
 | Agent repeatedly makes the same mistake | Each run starts from scratch | Past judgment is retrieved — "last time this broke" |
 | Agent needs to know your operation style | Hardcoded in system prompt, never evolves | Utility feedback loop reinforces what works |
-| Onboarding new agents | Every agent needs its own instructions | Shared memory of accumulated operational wisdom |
+| Onboarding new agents | Every agent needs its own instructions | A shared judgment store they can read from (see the concurrency note below) |
 | Debugging agent behavior | "Why did it do that?" is guesswork | Every judgment carries its reasoning chain |
 
 ---
@@ -218,19 +217,29 @@ Close the underlying storage connection. Also works as a context manager: `with 
 
 ---
 
+## The hard part is the verification signal
+
+Be clear-eyed about where the difficulty lives. This library packages the *easy* 20%: storing judgments and ranking them by a confidence-weighted score. The *hard* 80% — deciding, reliably, whether a past judgment was actually adopted or should have been corrected — is left to you, via `verify()`.
+
+The flywheel is only as good as that signal. If your `adopted=True/False` calls are guesses, the utility scores are noise and you have a plain vector store with extra steps. Before adopting this library, make sure you have a trustworthy source of that signal: an explicit human thumbs-up/down, a downstream success metric, a test that passes or fails, a user who edits the agent's action. That source — not this code — is what determines whether episodic memory works for you.
+
+---
+
 ## When NOT to use it
 
 - **If your agent only needs facts and preferences** — use Mem0 or a vector store. This library is not designed for semantic memory.
-- **If you don't have a way to verify judgments** — the flywheel needs feedback. Without `verify()`, the utility scores stay at 0 and the library behaves like a plain vector store.
-- **For more than ~10K records** — the current `knn_search` scans all rows in Python. At scale, swap in `sqlite-vec` or `pgvector` (the interface is just `Storage`).
+- **If you have no reliable way to verify judgments** — see the section above. Without a real feedback signal the utility scores stay flat and this degrades to a plain vector store.
+- **For concurrent multi-process access** — the store wraps a single SQLite connection and is not built for many agents writing at once. It's safe for one process (or read-mostly sharing); heavy concurrent writes need a real database behind the `Storage` interface.
+- **For more than ~10K records** — the current `knn_search` scans all rows in Python. At scale, swap in an ANN backend (e.g. `sqlite-vec` or `pgvector`) behind the `Storage` interface.
 
 ---
 
 ## Project Status
 
-This is an early release (v0.1.0). The API is stable for the core loop (store → search → verify → weighted recall), but expect additions before 1.0:
+Early release (v0.2.0). The core loop (store → search → verify → weighted recall) is stable and tested, but expect additions before 1.0:
 
-- Pluggable ANN backends (sqlite-vec, pgvector)
+- Pluggable ANN backends (sqlite-vec, pgvector) for >10K records
+- Concurrent / multi-process access
 - Time-decayed utility weighting
 - Memory consolidation (merge duplicate judgments)
 - Streaming export for online fine-tuning

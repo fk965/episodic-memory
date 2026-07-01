@@ -5,9 +5,11 @@ import sqlite3
 import struct
 import time
 import uuid
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
+
+from .scoring import utility_score
 
 
 def _serialize_vector(vec: np.ndarray) -> bytes:
@@ -122,7 +124,7 @@ class Storage:
         if not rows:
             return []
 
-        scored: list[tuple[float, dict]] = []
+        scored: list[tuple[float, dict[str, Any]]] = []
         for row in rows:
             stored_vec = _deserialize_vector(row[6])
             sim = float(np.dot(query_vec, stored_vec))
@@ -182,21 +184,24 @@ class Storage:
             (memory_id, int(adopted), user_correction, now),
         )
 
-        if adopted:
+        # Bump the relevant counter, then recompute the confidence-weighted
+        # utility from the new totals. We compute in Python (Wilson lower
+        # bound) rather than inline SQL so the scoring logic lives in one
+        # place and is unit-testable on its own.
+        column = "adoption_count" if adopted else "correction_count"
+        self._conn.execute(
+            f"UPDATE memories SET {column} = {column} + 1 WHERE id = ?",
+            (memory_id,),
+        )
+        row = self._conn.execute(
+            "SELECT adoption_count, correction_count FROM memories WHERE id = ?",
+            (memory_id,),
+        ).fetchone()
+        if row is not None:
+            new_utility = utility_score(row[0], row[1])
             self._conn.execute(
-                "UPDATE memories SET adoption_count = adoption_count + 1, "
-                "utility_score = CAST(adoption_count + 1 AS REAL) / "
-                "CAST(adoption_count + correction_count + 1 AS REAL) "
-                "WHERE id = ?",
-                (memory_id,),
-            )
-        else:
-            self._conn.execute(
-                "UPDATE memories SET correction_count = correction_count + 1, "
-                "utility_score = CAST(adoption_count AS REAL) / "
-                "CAST(adoption_count + correction_count + 1 AS REAL) "
-                "WHERE id = ?",
-                (memory_id,),
+                "UPDATE memories SET utility_score = ? WHERE id = ?",
+                (new_utility, memory_id),
             )
         self._conn.commit()
 

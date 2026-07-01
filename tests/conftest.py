@@ -10,8 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import tempfile
+from pathlib import Path
 
 import numpy as np
+import pytest
+
+from episodic_memory import EpisodicMemory
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
@@ -49,14 +54,6 @@ class FakeEmbedder:
         return np.stack([self.embed(t) for t in texts])
 
 
-import tempfile
-from pathlib import Path
-
-import pytest
-
-from episodic_memory import EpisodicMemory
-
-
 @pytest.fixture
 def memory():
     """In-memory store with an offline deterministic embedder."""
@@ -66,12 +63,22 @@ def memory():
 
 
 @pytest.fixture
-def persisted_memory():
-    """File-backed store for persistence testing."""
+def fake_embedder_cls():
+    """The offline embedder class, for tests that build stores directly
+    (e.g. persistence tests that reopen a store at the same path)."""
+    return FakeEmbedder
+
+
+@pytest.fixture
+def tmp_db_path():
+    """A filesystem path for a SQLite db, cleaned up after the test.
+
+    Unlike ``persisted_memory`` this yields only the *path*, so a test can
+    open a store, close it, then reopen a fresh store at the same path to
+    prove data survives across connections (real persistence).
+    """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
-    store = EpisodicMemory(embedder=FakeEmbedder(), db_path=db_path)
-    yield store
-    store.close()
+    yield db_path
     Path(db_path).unlink(missing_ok=True)
 

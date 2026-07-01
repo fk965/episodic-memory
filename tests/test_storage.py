@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from episodic_memory.storage import Storage, _serialize_vector, _deserialize_vector
+from episodic_memory.storage import Storage, _deserialize_vector, _serialize_vector
 
 
 class TestVectorSerialization:

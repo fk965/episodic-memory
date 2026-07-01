@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 from . import embed as embed_module
+from .embed import SupportsEmbed
 from .storage import Storage
 from .types import MemoryRecord, SearchResult, Triple
 
@@ -27,11 +28,11 @@ class EpisodicMemory:
 
     def __init__(
         self,
-        embedder: object | None = None,
+        embedder: SupportsEmbed | None = None,
         db_path: str = ":memory:",
     ):
         self._storage = Storage(db_path=db_path)
-        self._embedder = embedder or embed_module.Embedder()
+        self._embedder: SupportsEmbed = embedder or embed_module.Embedder()
 
     # ── Public API ──────────────────────────────────────────────
 
